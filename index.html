@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sarah's Baro Buddy</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #07090f;
+      --surface: rgba(255,255,255,0.04);
+      --surface-2: rgba(255,255,255,0.08);
+      --border: rgba(255,255,255,0.07);
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --wpg: #38bdf8;
+      --kel: #f59e0b;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      padding: 2.5rem 1.25rem 4rem;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 55% 45% at 12% 8%,  rgba(245,158,11,0.08) 0%, transparent 100%),
+        radial-gradient(ellipse 55% 45% at 88% 92%, rgba(56,189,248,0.08) 0%, transparent 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container { max-width: 980px; margin: 0 auto; position: relative; z-index: 1; }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      margin-bottom: 2.5rem;
+      gap: 1rem;
+    }
+    .header-center { text-align: center; }
+    .logo { display: inline-flex; align-items: center; gap: 0.65rem; margin-bottom: 0.45rem; }
+    .logo-icon { width: 38px; height: 38px; flex-shrink: 0; filter: drop-shadow(0 0 8px rgba(245,158,11,0.35)); }
+
+    header h1 {
+      font-size: 1.15rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase;
+      background: linear-gradient(90deg, #38bdf8 0%, #7dd3fc 40%, #f59e0b 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    header p { font-size: 0.78rem; color: var(--muted); letter-spacing: 0.08em; }
+    .header-right { display: flex; justify-content: flex-end; align-items: center; }
+
+    .refresh-btn {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      color: var(--muted); width: 38px; height: 38px;
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .refresh-btn:hover { background: var(--surface-2); color: var(--text); border-color: rgba(255,255,255,0.15); }
+    .refresh-btn.spinning svg { animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Migraine card ──────────────────────────────────────── */
+    .migraine-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+      margin-bottom: 1.25rem;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+    }
+    .mig-header {
+      display: flex; align-items: center; gap: 0.45rem;
+      padding: 0.8rem 1.6rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .mig-header-lbl {
+      flex: 1; font-size: 0.62rem; font-weight: 600; letter-spacing: 0.18em;
+      text-transform: uppercase; color: var(--muted);
+    }
+
+    .mig-body { display: flex; }
+    .mig-col {
+      flex: 1; padding: 1.15rem 1.6rem 1.3rem;
+      border-top: 1.5px solid var(--col-color, var(--border));
+      position: relative; transition: border-top-color 0.5s;
+    }
+    .mig-col::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 50px;
+      background: linear-gradient(180deg, var(--col-glow, transparent) 0%, transparent 100%);
+      pointer-events: none;
+    }
+    .mig-col + .mig-col { border-left: 1px solid var(--border); }
+    .mig-col-label {
+      font-size: 0.6rem; font-weight: 600; letter-spacing: 0.18em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 0.65rem;
+    }
+    .mig-col-main { display: flex; align-items: center; gap: 0.55rem; margin-bottom: 0.45rem; }
+    .mig-dots { display: flex; gap: 4px; }
+    .mig-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      opacity: 0.15; transition: opacity 0.5s, background 0.5s;
+    }
+    .mig-dot.on { opacity: 1; }
+    .mig-level-text {
+      font-size: 1.15rem; font-weight: 600; letter-spacing: 0.02em; transition: color 0.5s;
+    }
+    .mig-detail { font-size: 0.71rem; color: var(--muted); line-height: 1.65; }
+    .mig-detail .primary { color: var(--text); }
+
+
+    /* ── City cards ─────────────────────────────────────────── */
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 0.65rem; }
+
+    .cards-meta {
+      text-align: right; margin-bottom: 1.25rem;
+      font-size: 0.68rem; color: var(--muted); opacity: 0.7; min-height: 1rem;
+    }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+      overflow: hidden; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    }
+
+    /* ── City photo ─────────────────────────────────────────── */
+    .card-photo { position: relative; height: 150px; overflow: hidden; }
+    .card-photo .city-art { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .card-photo > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .card-photo-info {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 0.55rem 1.35rem 0.8rem;
+      background: linear-gradient(transparent, rgba(0,0,0,0.75));
+    }
+    .card-label {
+      font-size: 0.62rem; font-weight: 600; letter-spacing: 0.18em;
+      text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 0.12rem;
+    }
+    .card-city-name { font-size: 1.15rem; font-weight: 500; color: #fff; }
+
+    /* ── Card body ───────────────────────────────────────────── */
+    .card-body { padding: 1.25rem 1.5rem 1.5rem; }
+    .card.wpg .card-body { border-top: 1.5px solid var(--wpg); }
+    .card.kel  .card-body { border-top: 1.5px solid var(--kel); }
+
+    .pressure-row { display: flex; align-items: baseline; gap: 0.35rem; min-height: 3.5rem; }
+    .pressure-value { font-size: 3.4rem; font-weight: 200; letter-spacing: -0.03em; line-height: 1; }
+    .pressure-unit  { font-size: 0.95rem; color: var(--muted); padding-bottom: 0.2rem; }
+
+    .conditions-row {
+      display: flex; align-items: center; gap: 0.45rem;
+      margin-top: 0.5rem; min-height: 1.4rem;
+    }
+    .cond-icon  { font-size: 1rem; line-height: 1; }
+    .cond-desc  { font-size: 0.8rem; color: var(--muted); }
+    .cond-sep   { color: var(--border); }
+    .cond-temp  { font-size: 0.9rem; font-weight: 500; }
+    .cond-feels { font-size: 0.72rem; color: var(--muted); }
+
+    .skeleton {
+      border-radius: 8px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.04) 75%);
+      background-size: 400% 100%;
+      animation: shimmer 1.8s ease-in-out infinite;
+    }
+    .skeleton.lg { height: 3rem; width: 150px; }
+    .skeleton.md { height: 1rem; width: 180px; margin-top: 0.5rem; }
+    .skeleton.sm { height: 0.65rem; width: 100%; margin-top: 3px; }
+    @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+
+    .trend      { margin-top: 0.5rem; font-size: 0.8rem; color: var(--muted); min-height: 1.05rem; }
+    .trend-up   { color: #4ade80; }
+    .trend-down { color: #f87171; }
+
+    /* ── Forecast strip ─────────────────────────────────────── */
+    .forecast-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    .forecast-title {
+      font-size: 0.6rem; font-weight: 600; letter-spacing: 0.18em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 0.6rem;
+    }
+    .forecast-strip { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
+    .fc-day { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+    .fc-bars { width: 100%; height: 34px; display: flex; align-items: flex-end; justify-content: center; }
+    .fc-bar  { width: 5px; border-radius: 3px 3px 1px 1px; min-height: 4px; opacity: 0.85; }
+    .fc-hpa  { font-size: 0.62rem; font-weight: 500; letter-spacing: -0.02em; }
+    .fc-tmp  { font-size: 0.6rem; color: var(--muted); }
+    .fc-lbl  { font-size: 0.58rem; color: var(--muted); letter-spacing: 0.02em; }
+    .fc-day.is-today .fc-lbl { color: var(--text); font-weight: 600; }
+    .fc-day.is-today .fc-hpa { font-weight: 700; }
+
+    /* ── Chart section ───────────────────────────────────────── */
+    .chart-section {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 1.75rem 2rem;
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    }
+    .chart-top {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      flex-wrap: wrap; gap: 1rem; margin-bottom: 1.75rem;
+    }
+    .chart-lbl {
+      font-size: 0.62rem; font-weight: 600; letter-spacing: 0.18em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 0.5rem;
+    }
+    .legend { display: flex; gap: 1.25rem; }
+    .legend-item {
+      display: flex; align-items: center; gap: 0.4rem;
+      font-size: 0.8rem; color: var(--muted); transition: opacity 0.2s;
+    }
+    .legend-item.dimmed { opacity: 0.25; }
+    .legend-pip { width: 20px; height: 2px; border-radius: 2px; }
+    .chart-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; }
+    .toggles {
+      display: flex; background: rgba(0,0,0,0.35);
+      border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 2px;
+    }
+    .toggle-btn {
+      background: none; border: none; color: var(--muted);
+      font-size: 0.78rem; font-weight: 500; letter-spacing: 0.05em;
+      padding: 0.38rem 0.8rem; border-radius: 7px; cursor: pointer;
+      transition: background 0.18s, color 0.18s;
+    }
+    .toggle-btn:hover { color: var(--text); }
+    .toggle-btn.active { background: var(--surface-2); color: var(--text); }
+    .chart-wrap { position: relative; height: 280px; }
+    .chart-overlay {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 0.82rem; letter-spacing: 0.1em; color: var(--muted); pointer-events: none;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    footer {
+      text-align: center; margin-top: 2rem;
+      font-size: 0.7rem; color: var(--muted); letter-spacing: 0.04em;
+    }
+    footer a { color: var(--muted); text-decoration: none; border-bottom: 1px solid rgba(100,116,139,0.3); }
+    footer a:hover { color: var(--text); }
+
+    /* ── Responsive ─────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      header { grid-template-columns: 1fr auto; }
+      header > :first-child { display: none; }
+      .cards { grid-template-columns: 1fr; }
+      .mig-body { flex-direction: column; }
+      .mig-col + .mig-col { border-left: none; border-top: 1px solid var(--border); }
+      .chart-controls { flex-direction: column; align-items: flex-end; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div></div>
+    <div class="header-center">
+      <div class="logo">
+        <!-- Barometric Pressure Robot -->
+        <svg class="logo-icon" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="bot-g" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#38bdf8"/>
+              <stop offset="100%" stop-color="#f59e0b"/>
+            </linearGradient>
+            <linearGradient id="bot-body" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="rgba(255,255,255,0.09)"/>
+              <stop offset="100%" stop-color="rgba(255,255,255,0.03)"/>
+            </linearGradient>
+          </defs>
+          <!-- Antenna shaft -->
+          <rect x="18.25" y="2.5" width="3.5" height="7" rx="1.75" fill="#334155"/>
+          <!-- Antenna orb (blue→amber gradient) -->
+          <circle cx="20" cy="2" r="3.25" fill="url(#bot-g)"/>
+          <circle cx="19" cy="1.1" r="1" fill="rgba(255,255,255,0.4)"/>
+          <!-- Head -->
+          <rect x="5" y="9" width="30" height="19" rx="5.5"
+                fill="url(#bot-body)" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+          <!-- Left eye — Winnipeg blue gauge -->
+          <circle cx="14" cy="18" r="5" fill="rgba(7,9,15,0.92)"
+                  stroke="rgba(56,189,248,0.55)" stroke-width="0.85"/>
+          <path d="M 10.2 20 A 4 4 0 0 1 17.8 20"
+                stroke="#38bdf8" stroke-width="1.1" fill="none" opacity="0.65"/>
+          <line x1="14" y1="18" x2="16.7" y2="14.8"
+                stroke="#38bdf8" stroke-width="1.6" stroke-linecap="round"/>
+          <circle cx="14" cy="18" r="1.1" fill="#e2e8f0"/>
+          <!-- Right eye — Kelowna amber gauge -->
+          <circle cx="26" cy="18" r="5" fill="rgba(7,9,15,0.92)"
+                  stroke="rgba(245,158,11,0.55)" stroke-width="0.85"/>
+          <path d="M 22.2 20 A 4 4 0 0 1 29.8 20"
+                stroke="#f59e0b" stroke-width="1.1" fill="none" opacity="0.65"/>
+          <line x1="26" y1="18" x2="28.7" y2="14.8"
+                stroke="#f59e0b" stroke-width="1.6" stroke-linecap="round"/>
+          <circle cx="26" cy="18" r="1.1" fill="#e2e8f0"/>
+          <!-- Smile -->
+          <path d="M 14.5 23.5 Q 20 27 25.5 23.5"
+                stroke="rgba(255,255,255,0.38)" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+          <!-- Body -->
+          <rect x="10" y="29" width="20" height="10" rx="3.5"
+                fill="url(#bot-body)" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+          <!-- Chest gauge -->
+          <circle cx="20" cy="34" r="3.2" fill="rgba(7,9,15,0.8)"
+                  stroke="rgba(255,255,255,0.1)" stroke-width="0.5"/>
+          <line x1="20" y1="34" x2="21.6" y2="31.8"
+                stroke="url(#bot-g)" stroke-width="1.2" stroke-linecap="round"/>
+          <circle cx="20" cy="34" r="0.8" fill="#94a3b8"/>
+          <!-- Arms -->
+          <rect x="4.5" y="30" width="5" height="3" rx="1.5"
+                fill="url(#bot-body)" stroke="rgba(255,255,255,0.08)" stroke-width="0.75"/>
+          <rect x="30.5" y="30" width="5" height="3" rx="1.5"
+                fill="url(#bot-body)" stroke="rgba(255,255,255,0.08)" stroke-width="0.75"/>
+        </svg>
+        <h1>Sarah's Baro Buddy</h1>
+      </div>
+      <p>Winnipeg, MB &nbsp;&middot;&nbsp; Kelowna, BC</p>
+    </div>
+    <div class="header-right">
+      <button class="refresh-btn" id="refresh-btn" title="Refresh data">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M13.5 8A5.5 5.5 0 1 1 8 2.5c1.8 0 3.4.87 4.4 2.22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          <path d="M12 2l1 3-3-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Migraine likelihood card ── -->
+  <div class="migraine-card" id="migraine-card">
+    <div class="mig-header">
+      <span class="mig-header-lbl">Migraine Likelihood</span>
+    </div>
+    <div class="mig-body">
+      <div class="mig-col" id="mig-wpg-col">
+        <div class="mig-col-label">Manitoba · Winnipeg</div>
+        <div class="mig-col-main">
+          <div class="mig-dots" id="mig-wpg-dots"></div>
+          <div class="mig-level-text" id="mig-wpg-level">—</div>
+        </div>
+        <div class="mig-detail" id="mig-wpg-detail"></div>
+      </div>
+      <div class="mig-col" id="mig-kel-col">
+        <div class="mig-col-label">BC · Kelowna</div>
+        <div class="mig-col-main">
+          <div class="mig-dots" id="mig-kel-dots"></div>
+          <div class="mig-level-text" id="mig-kel-level">—</div>
+        </div>
+        <div class="mig-detail" id="mig-kel-detail"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── City cards ── -->
+  <div class="cards">
+
+    <div class="card wpg">
+      <div class="card-photo">
+        <img src="https://www.tourismwinnipeg.com/uploads/sv_images/simpleview-image-upload-c-fit-w-800-h-600-crm-winnipeg-Felix-Zyron-Paul-Dusk-on-the-Esplanade-Riel-cc58f7cd-5056-a36a-0924080957261799.t1750857851.jpg" alt="Dusk on the Esplanade Riel, Winnipeg">
+        <div class="card-photo-info">
+          <div class="card-label">Manitoba</div>
+          <div class="card-city-name">Winnipeg</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="pressure-row"   id="wpg-value"><div class="skeleton lg"></div></div>
+        <div class="conditions-row" id="wpg-conditions"><div class="skeleton md"></div></div>
+        <div class="trend"          id="wpg-trend"></div>
+        <div class="forecast-section">
+          <div class="forecast-title">7-Day Outlook</div>
+          <div class="forecast-strip" id="wpg-forecast">
+            <div class="skeleton sm"></div><div class="skeleton sm"></div>
+            <div class="skeleton sm"></div><div class="skeleton sm"></div>
+            <div class="skeleton sm"></div><div class="skeleton sm"></div>
+            <div class="skeleton sm"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card kel">
+      <div class="card-photo">
+        <img src="https://cruiseweb.com/_next/image?url=%2Fapi%2Fmedia%2Ffile%2Fports-of-call-kelowna-canada.jpg%3F2025-09-23T15%3A45%3A28.044Z&w=1920&q=50" alt="Kelowna, BC">
+        <div class="card-photo-info">
+          <div class="card-label">British Columbia</div>
+          <div class="card-city-name">Kelowna</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="pressure-row"   id="kel-value"><div class="skeleton lg"></div></div>
+        <div class="conditions-row" id="kel-conditions"><div class="skeleton md"></div></div>
+        <div class="trend"          id="kel-trend"></div>
+        <div class="forecast-section">
+          <div class="forecast-title">7-Day Outlook</div>
+          <div class="forecast-strip" id="kel-forecast">
+            <div class="skeleton sm"></div><div class="skeleton sm"></div>
+            <div class="skeleton sm"></div><div class="skeleton sm"></div>
+            <div class="skeleton sm"></div><div class="skeleton sm"></div>
+            <div class="skeleton sm"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /.cards -->
+
+  <div class="cards-meta" id="cards-meta"></div>
+
+  <!-- ── Historical chart ── -->
+  <div class="chart-section">
+    <div class="chart-top">
+      <div>
+        <div class="chart-lbl">Pressure History</div>
+        <div class="legend">
+          <div class="legend-item" id="legend-wpg">
+            <div class="legend-pip" style="background:#38bdf8"></div>Winnipeg
+          </div>
+          <div class="legend-item" id="legend-kel">
+            <div class="legend-pip" style="background:#f59e0b"></div>Kelowna
+          </div>
+        </div>
+      </div>
+      <div class="chart-controls">
+        <div class="toggles">
+          <button class="toggle-btn active" data-city="both">Both</button>
+          <button class="toggle-btn" data-city="wpg">Winnipeg</button>
+          <button class="toggle-btn" data-city="kel">Kelowna</button>
+        </div>
+        <div class="toggles">
+          <button class="toggle-btn active" data-range="7d">7D</button>
+          <button class="toggle-btn" data-range="30d">30D</button>
+          <button class="toggle-btn" data-range="3m">3M</button>
+        </div>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-overlay" id="chart-overlay">Loading…</div>
+      <canvas id="chart"></canvas>
+    </div>
+  </div>
+
+  <footer>
+    Weather data via <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>
+    &nbsp;·&nbsp; Pressure in hPa &nbsp;·&nbsp; Temperature in °C
+  </footer>
+
+</div>
+<script>
+  const CITIES = {
+    wpg: { lat: 49.8951, lon: -97.1384 },
+    kel: { lat: 49.8880, lon: -119.4960 },
+  };
+
+  const cache = {};
+  function once(key, fn) { if (!cache[key]) cache[key] = fn(); return cache[key]; }
+
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+  function daysAgoStr(n) {
+    const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10);
+  }
+
+  // ── Weather code ─────────────────────────────────────────────────────────────
+  function weatherInfo(code) {
+    const c = Math.round(code ?? 0);
+    if (c === 0)              return { icon: '☀️',  desc: 'Clear' };
+    if (c === 1)              return { icon: '🌤',  desc: 'Mainly Clear' };
+    if (c === 2)              return { icon: '⛅️', desc: 'Partly Cloudy' };
+    if (c === 3)              return { icon: '☁️',  desc: 'Overcast' };
+    if (c === 45 || c === 48) return { icon: '🌫',  desc: 'Fog' };
+    if (c >= 51 && c <= 55)   return { icon: '🌦',  desc: 'Drizzle' };
+    if (c >= 61 && c <= 65)   return { icon: '🌧',  desc: 'Rain' };
+    if (c >= 71 && c <= 77)   return { icon: '❄️',  desc: 'Snow' };
+    if (c >= 80 && c <= 82)   return { icon: '🌦',  desc: 'Showers' };
+    if (c === 85 || c === 86) return { icon: '🌨',  desc: 'Snow Showers' };
+    if (c >= 95)              return { icon: '⛈',   desc: 'Thunderstorm' };
+    return { icon: '🌡', desc: 'Unknown' };
+  }
+
+  // ── Migraine score ────────────────────────────────────────────────────────────
+  // Research basis: >5 hPa/24h changes are significant triggers;
+  // rapid drops are slightly more impactful than rises.
+  function calcMigraineScore(hourlyTimes, hourlyPressures, forecast) {
+    const today = todayStr();
+
+    // Build paired hourly history array (past only)
+    const hist = [];
+    hourlyTimes.forEach((t, i) => {
+      if (t.slice(0, 10) <= today && hourlyPressures[i] != null) {
+        hist.push({ ms: new Date(t).getTime(), p: hourlyPressures[i] });
+      }
+    });
+
+    // Max 24h pressure change (drop & rise separately) across recent history
+    let maxDrop24h = 0, maxRise24h = 0;
+    for (let i = 0; i < hist.length; i++) {
+      for (let j = i + 1; j < hist.length; j++) {
+        const hrs = (hist[j].ms - hist[i].ms) / 3_600_000;
+        if (hrs > 26) break;
+        if (hrs >= 20) {
+          const delta = hist[j].p - hist[i].p;
+          if (delta < 0) maxDrop24h = Math.max(maxDrop24h, -delta);
+          else           maxRise24h = Math.max(maxRise24h, delta);
+        }
+      }
+    }
+
+    // Current trend: pressure change over last 6 hours
+    const last6 = hist.slice(-6);
+    const currentDelta = last6.length >= 2
+      ? last6[last6.length - 1].p - last6[0].p : 0;
+    const isDropping = currentDelta < -1;
+
+    // Upcoming forecast: max day-over-day swing (next 3 days weighted heavier)
+    let maxFcSwing = 0;
+    for (let i = 1; i < Math.min(forecast.length, 4); i++) {
+      const swing = Math.abs(forecast[i].pressure - forecast[i - 1].pressure);
+      const weight = i <= 2 ? 1.0 : 0.6;
+      maxFcSwing = Math.max(maxFcSwing, swing * weight);
+    }
+
+    // Composite: drops weighted 1.35x (slightly worse than rises for migraines)
+    const recentScore = Math.max(maxDrop24h * 1.35, maxRise24h);
+    const composite   = recentScore * 0.55 + maxFcSwing * 0.35 + Math.abs(currentDelta) * 0.10;
+
+    return { composite, maxDrop24h, maxRise24h, maxFcSwing, isDropping, currentDelta };
+  }
+
+  function scoreToLevel(s) {
+    if (s < 2.5) return { label: 'Very Low', dots: 1, color: '#4ade80' };
+    if (s < 4.5) return { label: 'Low',      dots: 2, color: '#a3e635' };
+    if (s < 6.5) return { label: 'Medium',   dots: 3, color: '#fbbf24' };
+    if (s < 8.5) return { label: 'High',     dots: 4, color: '#f97316' };
+    return              { label: 'Very High', dots: 5, color: '#ef4444' };
+  }
+
+  function cityDetail(sc) {
+    const parts = [];
+    if (sc.maxDrop24h >= 1.5)  parts.push(`↓ ${sc.maxDrop24h.toFixed(1)} hPa / 24h`);
+    if (sc.maxRise24h >= 1.5)  parts.push(`↑ ${sc.maxRise24h.toFixed(1)} hPa / 24h`);
+    if (sc.maxFcSwing >= 2)    parts.push(`±${sc.maxFcSwing.toFixed(1)} hPa forecast`);
+    if (sc.isDropping)         parts.push('currently falling');
+    return parts.length ? parts.slice(0, 2).join(' · ') : 'Stable';
+  }
+
+  function renderMigraineCard(wpgSc, kelSc) {
+    const cols = [
+      { id: 'wpg', sc: wpgSc, color: '#38bdf8', glow: 'rgba(56,189,248,0.12)' },
+      { id: 'kel', sc: kelSc, color: '#f59e0b', glow: 'rgba(245,158,11,0.12)' },
+    ];
+    cols.forEach(({ id, sc, color, glow }) => {
+      const lvl   = scoreToLevel(sc.composite);
+      const col   = document.getElementById(`mig-${id}-col`);
+      col.style.setProperty('--col-color', color);
+      col.style.setProperty('--col-glow',  glow);
+
+      const dotsEl = document.getElementById(`mig-${id}-dots`);
+      dotsEl.innerHTML = Array.from({ length: 5 }, (_, i) =>
+        `<span class="mig-dot${i < lvl.dots ? ' on' : ''}"${i < lvl.dots ? ` style="background:${lvl.color}"` : ''}></span>`
+      ).join('');
+
+      const lvlEl = document.getElementById(`mig-${id}-level`);
+      lvlEl.textContent = lvl.label;
+      lvlEl.style.color = lvl.color;
+
+      document.getElementById(`mig-${id}-detail`).innerHTML =
+        `<span class="primary">${cityDetail(sc)}</span>`;
+    });
+  }
+
+  // ── Fetch city data (current + 4 days history + 7 day forecast) ──────────────
+  async function fetchCityData(city) {
+    const { lat, lon } = CITIES[city];
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&current=pressure_msl,temperature_2m,apparent_temperature,weather_code` +
+      `&hourly=pressure_msl,temperature_2m` +
+      `&past_days=4&forecast_days=7&timezone=auto`;
+    const data = await fetch(url).then(r => r.json());
+
+    const cur     = data.current;
+    const today   = todayStr();
+    const yday    = daysAgoStr(1);
+
+    // Yesterday avg for trend
+    const yVals = data.hourly.time
+      .map((t, i) => t.startsWith(yday) ? data.hourly.pressure_msl[i] : null)
+      .filter(v => v != null);
+    const yesterdayAvg = yVals.length ? yVals.reduce((a, b) => a + b) / yVals.length : null;
+
+    // 7-day forecast (today → +6), daily average pressure + temp high/low
+    const fcPress = {}, fcTemp = {};
+    data.hourly.time.forEach((t, i) => {
+      const date = t.slice(0, 10);
+      if (date < today) return;
+      if (data.hourly.pressure_msl[i] != null) {
+        if (!fcPress[date]) fcPress[date] = { sum: 0, n: 0 };
+        fcPress[date].sum += data.hourly.pressure_msl[i]; fcPress[date].n++;
+      }
+      if (data.hourly.temperature_2m[i] != null) {
+        if (!fcTemp[date]) fcTemp[date] = { max: -Infinity, min: Infinity };
+        const t2 = data.hourly.temperature_2m[i];
+        if (t2 > fcTemp[date].max) fcTemp[date].max = t2;
+        if (t2 < fcTemp[date].min) fcTemp[date].min = t2;
+      }
+    });
+    const forecast = Object.keys(fcPress).sort().slice(0, 7).map(date => ({
+      date,
+      pressure: fcPress[date].sum / fcPress[date].n,
+      tempHigh: fcTemp[date]?.max ?? null,
+      tempLow:  fcTemp[date]?.min ?? null,
+    }));
+
+    return {
+      pressure:    cur.pressure_msl,
+      temperature: cur.temperature_2m,
+      feelsLike:   cur.apparent_temperature,
+      weatherCode: cur.weather_code,
+      currentTime: cur.time,
+      yesterdayAvg,
+      forecast,
+      // Raw hourly for migraine calculation
+      hourlyTimes:     data.hourly.time,
+      hourlyPressures: data.hourly.pressure_msl,
+    };
+  }
+
+  // Historical chart data
+  async function fetchHistorical(city, pastDays) {
+    const { lat, lon } = CITIES[city];
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&hourly=pressure_msl&past_days=${pastDays}&forecast_days=1&timezone=auto`;
+    const data = await fetch(url).then(r => r.json());
+    return toDaily(data.hourly.time, data.hourly.pressure_msl);
+  }
+
+  function toDaily(times, values) {
+    const map = {};
+    const cutoff = todayStr();
+    times.forEach((t, i) => {
+      const date = t.slice(0, 10);
+      if (date > cutoff || values[i] == null) return;
+      if (!map[date]) map[date] = { sum: 0, n: 0 };
+      map[date].sum += values[i]; map[date].n++;
+    });
+    return Object.entries(map)
+      .map(([date, { sum, n }]) => ({ date, value: sum / n }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  function getSeriesData(range) {
+    const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
+    return once(`series-${range}`, async () => {
+      const [wpg, kel] = await Promise.all([
+        fetchHistorical('wpg', days), fetchHistorical('kel', days),
+      ]);
+      return { wpg, kel };
+    });
+  }
+
+  function align(wpgS, kelS) {
+    const dates = [...new Set([...wpgS, ...kelS].map(d => d.date))].sort();
+    const wm = Object.fromEntries(wpgS.map(d => [d.date, d.value]));
+    const km = Object.fromEntries(kelS.map(d => [d.date, d.value]));
+    return { labels: dates, wpg: dates.map(d => wm[d] ?? null), kel: dates.map(d => km[d] ?? null) };
+  }
+
+  // ── Forecast strip ───────────────────────────────────────────────────────────
+  function dayLabel(dateStr) {
+    if (dateStr === todayStr()) return 'Today';
+    return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-CA', { weekday: 'short' });
+  }
+
+  function renderForecast(id, forecast, color) {
+    const el = document.getElementById(`${id}-forecast`);
+    if (!forecast?.length) {
+      el.innerHTML = `<span style="color:var(--muted);font-size:.72rem;grid-column:1/-1">—</span>`;
+      return;
+    }
+    const ps   = forecast.map(d => d.pressure);
+    const pMin = Math.min(...ps), pMax = Math.max(...ps), pRange = pMax - pMin || 1;
+    const today = todayStr();
+
+    el.innerHTML = forecast.map(d => {
+      const pct     = ((d.pressure - pMin) / pRange * 65 + 20).toFixed(1);
+      const isToday = d.date === today;
+      const tempStr = d.tempHigh != null
+        ? `<div class="fc-tmp">${Math.round(d.tempHigh)}° / ${Math.round(d.tempLow)}°</div>`
+        : '';
+      return `<div class="fc-day${isToday ? ' is-today' : ''}">
+        <div class="fc-bars"><div class="fc-bar" style="height:${pct}%;background:${color}"></div></div>
+        <div class="fc-hpa">${Math.round(d.pressure)}</div>
+        ${tempStr}
+        <div class="fc-lbl">${dayLabel(d.date)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Card rendering ───────────────────────────────────────────────────────────
+  function renderCard(id, data) {
+    document.getElementById(`${id}-value`).innerHTML =
+      `<span class="pressure-value">${data.pressure.toFixed(1)}</span><span class="pressure-unit">hPa</span>`;
+
+    const { icon, desc } = weatherInfo(data.weatherCode);
+    const feelsStr = data.feelsLike != null
+      ? `<span class="cond-sep">·</span><span class="cond-feels">Feels ${Math.round(data.feelsLike)}°</span>`
+      : '';
+    document.getElementById(`${id}-conditions`).innerHTML =
+      `<span class="cond-icon">${icon}</span>
+       <span class="cond-desc">${desc}</span>
+       <span class="cond-sep">·</span>
+       <span class="cond-temp">${Math.round(data.temperature)}°C</span>
+       ${feelsStr}`;
+
+    const tEl = document.getElementById(`${id}-trend`);
+    if (data.yesterdayAvg != null) {
+      const diff = data.pressure - data.yesterdayAvg, abs = Math.abs(diff).toFixed(1);
+      tEl.innerHTML = Math.abs(diff) < 0.3
+        ? `→ Stable pressure`
+        : diff > 0
+          ? `<span class="trend-up">↑ +${abs} hPa vs. yesterday</span>`
+          : `<span class="trend-down">↓ −${abs} hPa vs. yesterday</span>`;
+    }
+
+    renderForecast(id, data.forecast, id === 'wpg' ? '#38bdf8' : '#f59e0b');
+  }
+
+  // ── Chart ────────────────────────────────────────────────────────────────────
+  let chartInstance = null;
+  let activeCityView = 'both';
+
+  function makeChart(labels, wpgData, kelData, unit) {
+    const ctx = document.getElementById('chart').getContext('2d');
+    return new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Winnipeg', data: wpgData,
+            borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,0.07)',
+            borderWidth: 2, tension: 0.35, fill: true, spanGaps: true,
+            pointRadius: 0, pointHoverRadius: 5,
+            pointHoverBackgroundColor: '#38bdf8', pointHoverBorderColor: '#07090f', pointHoverBorderWidth: 2,
+          },
+          {
+            label: 'Kelowna', data: kelData,
+            borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.07)',
+            borderWidth: 2, tension: 0.35, fill: true, spanGaps: true,
+            pointRadius: 0, pointHoverRadius: 5,
+            pointHoverBackgroundColor: '#f59e0b', pointHoverBorderColor: '#07090f', pointHoverBorderWidth: 2,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        animation: { duration: 350 },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(7,9,15,0.95)',
+            borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
+            titleColor: '#94a3b8', bodyColor: '#e2e8f0', padding: 12,
+            callbacks: {
+              title: ([item]) => new Date(item.label).toLocaleDateString('en-CA', {
+                weekday: 'short', year: 'numeric', month: 'long', day: 'numeric',
+              }),
+              label: item => item.raw != null
+                ? ` ${item.dataset.label}: ${item.raw.toFixed(1)} hPa` : null,
+            },
+          },
+        },
+        scales: {
+          x: {
+            type: 'time',
+            time: { unit: 'day', tooltipFormat: 'yyyy-MM-dd' },
+            grid: { color: 'rgba(255,255,255,0.04)', drawTicks: false },
+            ticks: { color: '#64748b', font: { size: 11 }, maxRotation: 0, padding: 8 },
+            border: { color: 'rgba(255,255,255,0.06)' },
+          },
+          y: {
+            grid: { color: 'rgba(255,255,255,0.04)', drawTicks: false },
+            ticks: { color: '#64748b', font: { size: 11 }, padding: 8, callback: v => v.toFixed(0) },
+            border: { color: 'rgba(255,255,255,0.06)', dash: [4, 4] },
+          },
+        },
+      },
+    });
+  }
+
+  function applyChartVisibility() {
+    if (!chartInstance) return;
+    chartInstance.data.datasets[0].hidden = activeCityView === 'kel';
+    chartInstance.data.datasets[1].hidden = activeCityView === 'wpg';
+    chartInstance.update('none');
+    document.getElementById('legend-wpg').classList.toggle('dimmed', activeCityView === 'kel');
+    document.getElementById('legend-kel').classList.toggle('dimmed', activeCityView === 'wpg');
+  }
+
+  function rangeUnit(range) { return (range === '7d' || range === '30d') ? 'day' : 'week'; }
+
+  async function loadChart(range) {
+    document.getElementById('chart-overlay').style.display = 'flex';
+    try {
+      const { wpg, kel } = await getSeriesData(range);
+      const { labels, wpg: wData, kel: kData } = align(wpg, kel);
+      const unit = rangeUnit(range);
+      if (chartInstance) {
+        chartInstance.data.labels = labels;
+        chartInstance.data.datasets[0].data = wData;
+        chartInstance.data.datasets[1].data = kData;
+        chartInstance.options.scales.x.time.unit = unit;
+        chartInstance.update('active');
+      } else {
+        chartInstance = makeChart(labels, wData, kData, unit);
+      }
+      applyChartVisibility();
+      document.getElementById('chart-overlay').style.display = 'none';
+    } catch (err) {
+      console.error(err);
+      document.getElementById('chart-overlay').textContent = 'Failed to load data.';
+    }
+  }
+
+  // ── Load cards + migraine ─────────────────────────────────────────────────────
+  async function loadCards() {
+    try {
+      const [wpgData, kelData] = await Promise.all([
+        once('city-wpg', () => fetchCityData('wpg')),
+        once('city-kel', () => fetchCityData('kel')),
+      ]);
+
+      renderCard('wpg', wpgData);
+      renderCard('kel', kelData);
+
+      // Shared last-updated
+      const when = new Date(wpgData.currentTime + 'Z');
+      document.getElementById('cards-meta').textContent =
+        `Data as of ${when.toLocaleString('en-CA', {
+          month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+        })}`;
+
+      // Migraine card
+      const wpgSc = calcMigraineScore(wpgData.hourlyTimes, wpgData.hourlyPressures, wpgData.forecast);
+      const kelSc = calcMigraineScore(kelData.hourlyTimes, kelData.hourlyPressures, kelData.forecast);
+      renderMigraineCard(wpgSc, kelSc);
+
+    } catch (err) {
+      console.error(err);
+      ['wpg', 'kel'].forEach(id => {
+        document.getElementById(`${id}-value`).innerHTML =
+          `<span style="color:var(--muted);font-size:.9rem">Unavailable</span>`;
+        document.getElementById(`${id}-conditions`).innerHTML = '';
+        document.getElementById(`${id}-forecast`).innerHTML =
+          `<span style="color:var(--muted);font-size:.72rem;grid-column:1/-1">—</span>`;
+      });
+    }
+  }
+
+  // ── Refresh ───────────────────────────────────────────────────────────────────
+  function refresh() {
+    const btn = document.getElementById('refresh-btn');
+    btn.classList.add('spinning');
+    Object.keys(cache).forEach(k => delete cache[k]);
+
+    ['wpg', 'kel'].forEach(id => {
+      document.getElementById(`${id}-value`).innerHTML      = '<div class="skeleton lg"></div>';
+      document.getElementById(`${id}-conditions`).innerHTML = '<div class="skeleton md"></div>';
+      document.getElementById(`${id}-trend`).innerHTML      = '';
+      document.getElementById(`${id}-forecast`).innerHTML   = '<div class="skeleton sm"></div>'.repeat(7);
+    });
+    document.getElementById('cards-meta').textContent = '';
+    ['wpg', 'kel'].forEach(id => {
+      const lvlEl = document.getElementById(`mig-${id}-level`);
+      if (lvlEl) { lvlEl.textContent = '—'; lvlEl.style.color = ''; }
+      const det = document.getElementById(`mig-${id}-detail`);
+      if (det) det.innerHTML = '';
+      const dots = document.getElementById(`mig-${id}-dots`);
+      if (dots) dots.innerHTML = '';
+    });
+
+    if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+    const ov = document.getElementById('chart-overlay');
+    ov.textContent = 'Loading…'; ov.style.display = 'flex';
+
+    Promise.all([loadCards(), loadChart(activeRange)])
+      .finally(() => btn.classList.remove('spinning'));
+  }
+
+  document.getElementById('refresh-btn').addEventListener('click', refresh);
+
+  // ── Toggles ───────────────────────────────────────────────────────────────────
+  let activeRange = '7d';
+
+  document.querySelectorAll('[data-range]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.range === activeRange) return;
+      activeRange = btn.dataset.range;
+      document.querySelectorAll('[data-range]').forEach(b =>
+        b.classList.toggle('active', b === btn));
+      loadChart(activeRange);
+    });
+  });
+
+  document.querySelectorAll('[data-city]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.city === activeCityView) return;
+      activeCityView = btn.dataset.city;
+      document.querySelectorAll('[data-city]').forEach(b =>
+        b.classList.toggle('active', b === btn));
+      applyChartVisibility();
+    });
+  });
+
+  // ── Init ─────────────────────────────────────────────────────────────────────
+  loadCards();
+  loadChart('7d');
+</script>
+</body>
+</html>
