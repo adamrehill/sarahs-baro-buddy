@@ -2,7 +2,7 @@
 
 A simple barometric pressure tracker for Winnipeg, MB and Kelowna, BC.
 
-> **Vibe coded** with Claude.
+> **Vibe coded** with Claude. No effort to produce quality code on this one haha
 
 ## What it does
 
